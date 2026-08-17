@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.local
+*.local
+.manus-logs/
+.manus-logs
+__manus__/
