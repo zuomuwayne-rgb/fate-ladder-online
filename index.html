@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>命运阶梯 Fate Ladder</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={theme:{extend:{colors:{
+  dark:{900:'#060e0e',800:'#0a1c1c',700:'#0c3030',600:'#104040',500:'#1a5c5c',400:'#257878'},
+  gold:{300:'#fcd34d',400:'#fbbf24',500:'#f59e0b',600:'#d97706'},
+  emerald:{custom:'#10b981',light:'#34d399',dark:'#059669'}
+}}}}
+</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800;900&display=swap');
+*{box-sizing:border-box}
+body{font-family:'Noto Sans SC',system-ui,sans-serif;background:#060e0e;color:#e2e8f0;margin:0;padding:0;min-height:100vh;overflow-x:hidden}
+@keyframes modal-in{from{opacity:0;transform:scale(.85) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.modal-enter{animation:modal-in .3s cubic-bezier(.34,1.56,.64,1)}
+@keyframes danger-pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)}50%{box-shadow:0 0 8px 2px rgba(239,68,68,.2)}}
+.cell-danger{animation:danger-pulse 2s ease-in-out infinite}
+@keyframes piece-glow{0%,100%{filter:brightness(1) drop-shadow(0 0 2px currentColor)}50%{filter:brightness(1.4) drop-shadow(0 0 8px currentColor)}}
+.ladder-scroll::-webkit-scrollbar{width:4px}
+.ladder-scroll::-webkit-scrollbar-track{background:transparent}
+.ladder-scroll::-webkit-scrollbar-thumb{background:#1a5c5c;border-radius:2px}
+.btn-game{transition:all .2s cubic-bezier(.4,0,.2,1)}
+.btn-game:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(16,185,129,.3)}
+.btn-game:active:not(:disabled){transform:translateY(0)}
+.btn-game:disabled{opacity:.4;cursor:not-allowed}
+.player-card{transition:all .3s ease}
+.player-card.locked{opacity:.5}
+body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 30% 20%,rgba(16,185,129,.03) 0%,transparent 50%),radial-gradient(ellipse at 70% 80%,rgba(139,92,246,.03) 0%,transparent 50%);pointer-events:none;z-index:0}
+@keyframes victory-glow{0%,100%{text-shadow:0 0 10px rgba(245,158,11,.5)}50%{text-shadow:0 0 30px rgba(245,158,11,.8),0 0 60px rgba(245,158,11,.3)}}
+.victory-text{animation:victory-glow 1.5s ease-in-out infinite}
+</style>
+</head>
+<body class="relative">
+<div id="app" class="relative z-10 max-w-lg mx-auto px-3 py-4 min-h-screen flex flex-col">
+  <header class="text-center mb-3 flex-shrink-0">
+    <h1 class="text-2xl sm:text-3xl font-black tracking-tight">
+      <span class="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">命运阶梯</span>
+    </h1>
+    <p class="text-xs text-teal-600 mt-0.5">Fate Ladder</p>
+  </header>
+  <div id="pp" class="grid grid-cols-4 gap-1.5 mb-3 flex-shrink-0"></div>
+  <div id="lp" class="flex-1 bg-dark-800 rounded-xl border border-teal-900/50 p-2 mb-3 overflow-hidden relative ladder-scroll" style="min-height:320px;max-height:50vh;overflow-y:auto"></div>
+  <div id="ap" class="flex-shrink-0 space-y-2">
+    <div id="dd" class="flex items-center justify-center gap-2 min-h-[48px]"></div>
+    <div id="bt" class="flex gap-2 justify-center flex-wrap"></div>
+    <div id="ms" class="text-center text-sm text-teal-300/80 min-h-[24px]"></div>
+  </div>
+  <div class="text-center mt-2 flex-shrink-0">
+    <button onclick="toggleRules()" class="text-xs text-teal-700 hover:text-teal-500 transition-colors underline underline-offset-2">📜 游戏规则</button>
+  </div>
+</div>
+<div id="rm" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,.7);backdrop-filter:blur(4px)">
+  <div class="modal-enter bg-dark-700 border border-teal-800 rounded-2xl p-5 max-w-md w-full max-h-[80vh] overflow-y-auto">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-lg font-bold text-teal-300">📜 游戏规则</h2>
+      <button onclick="toggleRules()" class="text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
+    </div>
+    <div class="text-sm text-gray-300 space-y-3 leading-relaxed">
+      <p><strong class="text-emerald-custom">基本规则</strong></p>
+      <ul class="list-disc list-inside space-y-1 ml-2 text-gray-400">
+        <li>4位参与者：玩家A、B、C 和 命运AI（D），每人10次掷骰机会</li>
+        <li>按 A → B → C → D 轮流掷骰，骰子点数 1~6</li>
+        <li>掷骰后前进对应步数，每阶获得对应奖励筹码</li>
+        <li>超过第20阶则回到第1阶（无奖励）</li>
+      </ul>
+      <p><strong class="text-amber-400">精准登顶（第20阶）</strong></p>
+      <ul class="list-disc list-inside space-y-1 ml-2 text-gray-400">
+        <li>精确到达第20阶触发「全场通杀」</li>
+        <li>获得：终局奖池200 + 自己累计奖励 + 没收全场其他人奖励</li>
+        <li>游戏立即结束</li>
+      </ul>
+      <p><strong class="text-red-400">掉落点</strong></p>
+      <ul class="list-disc list-inside space-y-1 ml-2 text-gray-400">
+        <li>每局随机4个掉落点（第2~19阶）</li>
+        <li>踩中后累计奖励全部清零</li>
+      </ul>
+      <p><strong class="text-purple-400">碰撞</strong></p>
+      <ul class="list-disc list-inside space-y-1 ml-2 text-gray-400">
+        <li>移动到已有其他玩家的格子时触发碰撞</li>
+        <li>双方均回到第1阶，但奖励保留</li>
+      </ul>
+      <p><strong class="text-cyan-400">锁定机制</strong></p>
+      <ul class="list-disc list-inside space-y-1 ml-2 text-gray-400">
+        <li>掷骰后可选择「继续」让下一位玩家行动</li>
+        <li>或选择「锁定」保住当前奖励，退出后续轮次</li>
+        <li>所有玩家锁定或骰子用完后自动结算</li>
+      </ul>
+      <p><strong class="text-teal-400">奖励表</strong></p>
+      <div class="grid grid-cols-5 gap-1 text-xs text-center mt-1">
+        <div class="bg-dark-600 rounded p-1">1<br/><span class="text-emerald-custom">+2</span></div>
+        <div class="bg-dark-600 rounded p-1">2<br/><span class="text-emerald-custom">+4</span></div>
+        <div class="bg-dark-600 rounded p-1">3<br/><span class="text-emerald-custom">+6</span></div>
+        <div class="bg-dark-600 rounded p-1">4<br/><span class="text-emerald-custom">+10</span></div>
+        <div class="bg-dark-600 rounded p-1">5<br/><span class="text-emerald-custom">+15</span></div>
+        <div class="bg-dark-600 rounded p-1">6<br/><span class="text-emerald-custom">+20</span></div>
+        <div class="bg-dark-600 rounded p-1">7<br/><span class="text-emerald-custom">+30</span></div>
+        <div class="bg-dark-600 rounded p-1">8<br/><span class="text-emerald-custom">+50</span></div>
+        <div class="bg-dark-600 rounded p-1">9<br/><span class="text-emerald-custom">+80</span></div>
+        <div class="bg-dark-600 rounded p-1">10<br/><span class="text-emerald-custom">+150</span></div>
+        <div class="bg-dark-600 rounded p-1">11<br/><span class="text-amber-400">+220</span></div>
+        <div class="bg-dark-600 rounded p-1">12<br/><span class="text-amber-400">+300</span></div>
+        <div class="bg-dark-600 rounded p-1">13<br/><span class="text-amber-400">+420</span></div>
+        <div class="bg-dark-600 rounded p-1">14<br/><span class="text-amber-400">+560</span></div>
+        <div class="bg-dark-600 rounded p-1">15<br/><span class="text-amber-400">+720</span></div>
+        <div class="bg-dark-600 rounded p-1">16<br/><span class="text-amber-400">+900</span></div>
+        <div class="bg-dark-600 rounded p-1">17<br/><span class="text-amber-400">+1100</span></div>
+        <div class="bg-dark-600 rounded p-1">18<br/><span class="text-amber-400">+1350</span></div>
+        <div class="bg-dark-600 rounded p-1">19<br/><span class="text-amber-400">+1650</span></div>
+        <div class="bg-dark-600 rounded p-1 col-span-5">20 🏆<br/><span class="text-amber-400">终局奖池+200</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="em" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,.75);backdrop-filter:blur(4px)">
+  <div id="ec" class="modal-enter bg-dark-700 border rounded-2xl p-5 max-w-sm w-full text-center"></div>
+</div>
+<script>
+const MR=10,FP=200,TS=20,DF=6;
+const RW=[2,4,6,10,15,20,30,50,80,150,220,300,420,560,720,900,1100,1350,1650,2000];
+const PC=['#10b981','#3b82f6','#a855f7','#f59e0b'];
+const PB=['rgba(16,185,129,0.15)','rgba(59,130,246,0.15)','rgba(168,85,247,0.15)','rgba(245,158,11,0.15)'];
+const PN=['玩家 A','玩家 B','玩家 C','命运 AI'];
+const DE=['⚀','⚁','⚂','⚃','⚄','⚅'];
+
+let G={ph:'entry',ps:[],ci:0,ri:null,dc:[null,null,null,null],dr:[],co:[],msg:'',wi:null,ev:null};
+
+function mkP(){return[0,1,2,3].map(i=>({id:i,l:String.fromCharCode(65+i),n:PN[i],r:i===3?'ai':'h',p:1,rw:0,ro:0,lk:false}));}
+function mkD(){const c=Array.from({length:18},(_,i)=>i+2);for(let i=c.length-1;i>0;i--){const j=0|Math.random()*(i+1);[c[i],c[j]]=[c[j],c[i]];}return c.slice(0,4).sort((a,b)=>a-b);}
+function ca(p){return !p.lk&&p.ro<MR;}
+function ad(){return G.ps.every(p=>!ca(p));}
+function fn(){for(let i=1;i<=4;i++){const x=(G.ci+i)%4;if(ca(G.ps[x]))return x;}return null;}
+function dl(ms){return new Promise(r=>setTimeout(r,ms));}
+
+function R(){rP();rL();rA();}
+
+function rP(){
+  const e=$('pp');
+  e.innerHTML=G.ps.map((p,i)=>{
+    const a=(G.ph==='turn'||G.ph==='choice')&&i===G.ci;
+    const s='player-card '+(a?'active-player':'')+' '+(p.lk?'locked':'')+' rounded-lg border border-teal-900/30 bg-dark-800 p-1.5 text-center relative overflow-hidden';
+    const st=a?'border-color:'+PC[i]+';box-shadow:0 0 12px '+PB[i]:'';
+    const ai=p.r==='ai'?'<div class="absolute top-0.5 right-0.5 text-[10px]">🤖</div>':'';
+    const dc=G.dc[p.id]!==null?'<div class="text-[10px] text-gray-400">'+DE[G.dc[p.id]-1]+' ('+G.dc[p.id]+')</div>':'';
+    const lk=p.lk?'<div class="text-[10px] text-amber-600">🔒锁定</div>':'';
+    return '<div class="'+s+'" style="'+st+'">'+ai+'<div class="text-xs font-bold" style="color:'+PC[i]+'">'+p.l+'</div><div class="text-[10px] text-gray-500 leading-tight truncate">'+p.n+'</div><div class="text-sm font-bold mt-0.5" style="color:'+PC[i]+'">'+p.rw+'</div><div class="text-[10px] text-gray-500">🎲 '+p.ro+'/'+MR+'</div>'+dc+lk+'</div>';
+  }).join('');
+}
+
+function rL(){
+  const e=$('lp');
+  let h='<div class="space-y-0.5">';
+  for(let s=TS;s>=1;s--){
+    const iT=s===20,iS=s===1;
+    const iD=G.dr.includes(s),iC=G.co.includes(s);
+    let bg,bd,co,ic;
+    if(iT){bg='rgba(245,158,11,0.15)';bd='rgba(245,158,11,0.4)';co='#f59e0b';ic='🏆';}
+    else if(iS){bg='rgba(16,185,129,0.08)';bd='rgba(16,185,129,0.25)';co='#10b981';ic='🚀';}
+    else if(iD){bg='rgba(239,68,68,0.1)';bd='rgba(239,68,68,0.3)';co='#ef4444';ic='⚠️';}
+    else if(s<=10){bg='rgba(16,185,129,0.04)';bd='rgba(16,185,129,0.12)';co='#34d399';ic='';}
+    else{bg='rgba(168,85,247,0.06)';bd='rgba(168,85,247,0.18)';co='#a855f7';ic='';}
+    const hr=G.ps.filter(p=>p.p===s);
+    const lf=hr.filter(p=>p.id<=1),rt=hr.filter(p=>p.id>=2);
+    let pc='';
+    const mp=(p)=>{
+      const rl=G.ri===p.id,ac=G.ph==='turn'&&G.ps[G.ci]?.id===p.id;
+      const g=rl?'animation:piece-glow .5s ease-in-out infinite;':(ac?'animation:piece-glow 1.2s ease-in-out infinite;':'');
+      return '<span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold border-2" style="background:'+PB[p.id]+';color:'+PC[p.id]+';border-color:'+PC[p.id]+';'+g+'">'+p.l+'</span>';
+    };
+    if(lf.length)pc+='<div class="flex gap-0.5">'+lf.map(mp).join('')+'</div>';
+    if(rt.length)pc+='<div class="flex gap-0.5">'+rt.map(mp).join('')+'</div>';
+    const cm=iC?' <span class="text-[8px] text-gray-600">💥</span>':'';
+    const lb=iS?'START':(iT?'终点':'+ '+RW[s-1]);
+    h+='<div class="relative flex items-center gap-1.5 rounded-lg px-2 py-1 '+(iD?'cell-danger':'')+'" style="background:'+bg+';border:1px solid '+bd+';min-height:30px" id="step-'+s+'"><div class="flex-shrink-0 w-5 text-right text-[10px] font-mono text-gray-600">'+s+'</div><div class="flex-shrink-0 w-5 text-center text-xs">'+ic+'</div><div class="flex-1 text-xs font-semibold" style="color:'+co+'">'+lb+cm+'</div><div class="flex gap-2 items-center">'+(pc||'<div class="w-5 h-5"></div>')+'</div></div>';
+  }
+  h+='</div>';
+  e.innerHTML=h;
+  const cp=G.ps[G.ci];
+  if(cp&&G.ph!=='entry'){const se=document.getElementById('step-'+cp.p);if(se)se.scrollIntoView({block:'center',behavior:'smooth'});}
+}
+
+function rA(){
+  const dE=$('dd'),bE=$('bt'),mE=$('ms');
+  mE.textContent=G.msg;
+  if(G.ph==='entry'){
+    dE.innerHTML='';bE.innerHTML='<button onclick="sG()" class="btn-game px-8 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-sm shadow-lg">🎲 开始四人对局</button>';
+  }else if(G.ph==='turn'){
+    const p=G.ps[G.ci],ok=G.ri===null&&G.ev===null;
+    if(p.r==='ai'){dE.innerHTML='<div class="flex items-center gap-2 text-sm text-amber-400"><div class="animate-spin w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full"></div><span>'+p.n+' 思考中...</span></div>';bE.innerHTML='';}
+    else{dE.innerHTML=ok?'<span class="text-3xl">🎲</span>':'';bE.innerHTML='<button onclick="rD()" '+(ok?'':'disabled')+' class="btn-game px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-sm">🎲 投掷 ('+(MR-p.ro)+'次剩余)</button>';}
+  }else if(G.ph==='choice'){
+    const p=G.ps[G.ci];
+    if(p.r==='ai'){dE.innerHTML='<div class="flex items-center gap-2 text-sm text-amber-400"><div class="animate-spin w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full"></div><span>'+p.n+' 决策中...</span></div>';bE.innerHTML='';}
+    else{dE.innerHTML='';bE.innerHTML='<button onclick="cC()" class="btn-game px-5 py-2.5 rounded-xl bg-teal-700 text-white font-bold text-sm border border-teal-600">▶ 继续</button><button onclick="cL()" class="btn-game px-5 py-2.5 rounded-xl bg-amber-700 text-white font-bold text-sm border border-amber-600">🔒 锁定 ('+p.rw+')</button>';}
+  }else if(G.ph==='settlement'){
+    dE.innerHTML='';bE.innerHTML='<button onclick="dS()" class="btn-game px-8 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-sm">📊 结算奖励</button>';
+  }else if(G.ph==='finished'){
+    dE.innerHTML='';bE.innerHTML='<button onclick="sG()" class="btn-game px-8 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-sm">🔄 再来一局</button>';
+  }
+}
+
+function $(id){return document.getElementById(id);}
+function sG(){
+  G={ph:'turn',ps:mkP(),ci:0,ri:null,dc:[null,null,null,null],dr:mkD(),co:[],msg:'A 先投掷。每位参与者各有 10 次骰子。',wi:null,ev:null};R();
+}
+
+async function rD(){
+  if(G.ph!=='turn')return;
+  const p=G.ps[G.ci];
+  if(!ca(p)||G.ri!==null||G.ev!==null)return;
+  G.ri=p.id;R();
+  const d=0|Math.random()*DF+1;p.ro++;
+  await dl(350);G.dc[p.id]=d;R();
+  const oP=p.p,nP=oP+d;
+  if(nP>TS){for(let s=oP+1;s<=TS;s++){p.p=s;R();await dl(145);}await dl(190);p.p=1;R();}
+  else{for(let s=oP+1;s<=nP;s++){p.p=s;R();await dl(145);}}
+  await dl(180);G.ri=null;
+  await rLd(p,nP,oP);
+}
+
+async function rLd(pl,nP,oP){
+  const ev=gE(pl,nP);
+  if(ev){G.ev=ev;R();await sEM(ev);G.ev=null;
+    if(ev.k==='victory'){G.ph='finished';G.msg=pl.n+' 获得最终胜利！总计 '+pl.rw+' 筹码。';R();return;}}
+  if(ca(pl)&&G.ph==='turn'){
+    G.ph='choice';G.msg=pl.n+' 累计 '+pl.rw+'。继续还是锁定？';R();
+    if(pl.r==='ai'){await dl(500);await aC(pl);}
+  }else{await nT();}
+}
+
+function gE(pl,nP){
+  if(nP>TS){pl.p=1;return{k:'overstep',t:'超过阶顶',d:pl.n+' 无法精准停在第 '+TS+' 阶，回到第 1 阶。'};}
+  if(nP===TS)return gV(pl);
+  const tg=G.ps.find(p=>p.id!==pl.id&&p.p===nP);
+  if(tg){const cP=nP;pl.p=1;tg.p=1;G.co.push(cP);G.co=[...new Set(G.co)];return{k:'collision',t:'阶梯坠落',d:pl.n+' 与 '+tg.n+' 相撞，均回到第 1 阶。'};}
+  if(G.dr.includes(nP)){const lo=pl.rw;pl.rw=0;G.dr.push(nP);G.dr=[...new Set(G.dr)];return{k:'loss',t:'踩中掉落点',d:lo>0?pl.n+' 失去 '+lo+' 枚累计筹码。':pl.n+' 没有累计筹码可失去。',v:lo};}
+  const g=RW[nP-1];pl.rw+=g;return{k:'gain',t:'获得筹码',d:pl.n+' 在第 '+nP+' 阶获得筹码。',v:g};
+}
+
+function gV(pl){
+  let sz=0;G.ps.forEach(p=>{if(p.id!==pl.id)sz+=p.rw;});
+  const fin=FP+pl.rw+sz;
+  pl.p=TS;pl.rw=fin;pl.lk=true;G.wi=pl.id;
+  G.ps.forEach(p=>{if(p.id!==pl.id){p.rw=0;p.lk=true;}});
+  return{k:'victory',t:'全场通杀',d:pl.n+' 精确登顶，其他参与者的累计奖励已全部没收。',pr:FP,se:sz};
+}
+
+async function nT(){
+  G.ph='turn';const nx=fn();
+  if(nx!==null){G.ci=nx;const p=G.ps[nx];G.msg=p.n+' 投掷。（剩余 '+(MR-p.ro)+' 次）';R();if(p.r==='ai'){await dl(650);await rD();}}
+  else{G.ph='settlement';G.msg='所有参与者已完成行动，进入结算。';R();}
+}
+
+async function cC(){if(G.ph!=='choice')return;G.ph='turn';await nT();}
+async function cL(){
+  if(G.ph!=='choice')return;
+  const p=G.ps[G.ci];p.lk=true;G.msg=p.n+' 已锁定奖励 '+p.rw+'。';
+  if(ad()){G.ph='settlement';G.msg='所有参与者已完成行动，进入结算。';R();}
+  else{G.ph='turn';await nT();}
+}
+
+async function aC(pl){
+  if(G.ph!=='choice'||pl.r!=='ai')return;
+  if(pl.rw>=160||pl.ro>=9){G.msg=pl.n+' 选择锁定奖励 '+pl.rw+'。';await cL();}
+  else{G.msg=pl.n+' 选择继续冒险。';await cC();}
+}
+
+function dS(){
+  G.ph='finished';G.wi=null;
+  let mx=0,wl='';
+  G.ps.forEach(p=>{if(p.rw>mx){mx=p.rw;wl=p.n;}});
+  G.msg='';showFinish(mx,wl);R();
+}
+
+function toggleRules(){
+  const m=$('rm');
+  if(m.classList.contains('hidden')){m.classList.remove('hidden');m.style.display='flex';}
+  else{m.classList.add('hidden');m.style.display='none';}
+}
+
+function sEM(ev){
+  return new Promise(resolve=>{
+    const m=$('em'),c=$('ec');
+    const cols={overstep:'#6b7280',collision:'#a855f7',loss:'#ef4444',gain:'#10b981',victory:'#f59e0b'};
+    const icons={overstep:'🌀',collision:'💥',loss:'⚠️',gain:'✨',victory:'🏆'};
+    const col=cols[ev.k]||'#10b981';
+    let h='<div class="text-3xl mb-2">'+(icons[ev.k]||'')+'</div>';
+    h+='<h3 class="text-lg font-bold mb-1" style="color:'+col+'">'+ev.t+'</h3>';
+    h+='<p class="text-sm text-gray-400 mb-3">'+ev.d+'</p>';
+    if(ev.k==='gain'&&ev.v)h+='<div class="text-2xl font-black" style="color:#10b981">+ '+ev.v+'</div>';
+    if(ev.k==='loss'&&ev.v>0)h+='<div class="text-2xl font-black" style="color:#ef4444">- '+ev.v+'</div>';
+    if(ev.k==='victory'){
+      h+='<div class="space-y-1 mt-2"><div class="text-sm"><span class="text-gray-400">终局奖池</span> <span class="text-amber-400 font-bold">+200</span></div>';
+      h+='<div class="text-sm"><span class="text-gray-400">没收全场</span> <span class="text-amber-400 font-bold">+'+ev.se+'</span></div></div>';
+    }
+    h+='<button class="btn-game mt-4 px-6 py-2 rounded-lg text-sm font-bold text-white" style="background:'+col+'" onclick="cEM()">确认</button>';
+    c.innerHTML=h;c.parentElement.style.borderColor=col;
+    m.classList.remove('hidden');m.style.display='flex';
+    window._eR=resolve;
+  });
+}
+
+function cEM(){
+  const m=$('em');m.classList.add('hidden');m.style.display='none';
+  if(window._eR){window._eR();window._eR=null;}
+}
+
+function showFinish(mx,wl){
+  const m=$('em'),c=$('ec');
+  const sorted=[...G.ps].sort((a,b)=>b.rw-a.rw);
+  let h='';
+  if(G.wi!==null){
+    h+='<div class="text-4xl mb-2">🏆</div><h3 class="text-xl font-black mb-1 victory-text" style="color:#f59e0b">全场通杀</h3>';
+    h+='<p class="text-sm text-gray-400 mb-3">'+G.ps[G.wi].n+' 精确登顶第 '+TS+' 阶！</p>';
+  }else if(mx>0){
+    h+='<div class="text-4xl mb-2">🎉</div><h3 class="text-xl font-black mb-1" style="color:#10b981">本局结算</h3>';
+    h+='<p class="text-sm text-gray-400 mb-3">'+wl+' 以 '+mx+' 筹码胜出！</p>';
+  }else{
+    h+='<div class="text-4xl mb-2">😅</div><h3 class="text-xl font-black mb-1 text-gray-400">本局结算</h3>';
+    h+='<p class="text-sm text-gray-500 mb-3">所有参与者一无所获。</p>';
+  }
+  h+='<div class="space-y-1.5 mt-3">';
+  const medals=['🥇','🥈','🥉','④'];
+  sorted.forEach((p,i)=>{
+    h+='<div class="flex items-center justify-between px-3 py-1.5 rounded-lg" style="background:'+PB[p.id]+'">';
+    h+='<span class="text-sm font-bold" style="color:'+PC[p.id]+'">'+medals[i]+' '+p.n+'</span>';
+    h+='<span class="text-sm font-bold" style="color:'+PC[p.id]+'">'+p.rw+'</span></div>';
+  });
+  h+='</div>';
+  h+='<button class="btn-game mt-4 px-6 py-2 rounded-lg text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600" onclick="cEM()">确认</button>';
+  c.innerHTML=h;c.parentElement.style.borderColor='#1a5c5c';
+  m.classList.remove('hidden');m.style.display='flex';
+}
+
+$('rm').addEventListener('click',function(e){if(e.target===this)toggleRules();});
+R();
+</script>
+</body>
+</html>
